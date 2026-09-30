@@ -77,6 +77,45 @@ class TestFormatIdentifierUpca:
         assert result.expected_check_digit == "2"
 
 
+class TestOcrConfusions:
+    def test_letter_o_read_as_zero(self):
+        result = formatter.format_identifier("O13468599X")
+        assert result.valid
+        assert result.ocr_fixed
+        assert result.formatted == "013468599-X"
+        assert "correcting" in result.message
+
+    def test_lowercase_l_read_as_one(self):
+        result = formatter.format_identifier("978l234567897")
+        assert result.valid
+        assert result.ocr_fixed
+        assert result.cleaned == "9781234567897"
+
+    def test_cyrillic_o_read_as_zero(self):
+        result = formatter.format_identifier("978-3-16-148410-О")
+        assert result.kind == "ISBN-13"
+        assert result.ocr_fixed
+        assert result.cleaned == "9783161484100"
+        assert result.valid
+
+    def test_clean_input_not_flagged(self):
+        result = formatter.format_identifier("013468599X")
+        assert result.valid
+        assert not result.ocr_fixed
+
+    def test_fix_does_not_bypass_checksum(self):
+        result = formatter.format_identifier("978O234567891")
+        assert not result.valid
+        assert result.ocr_fixed
+        assert result.expected_check_digit == "0"
+
+    def test_unknown_length_left_alone(self):
+        result = formatter.format_identifier("LOL")
+        assert result.kind == "unknown"
+        assert result.cleaned == "LOL"
+        assert not result.ocr_fixed
+
+
 class TestFormatIdentifierUnknownLength:
     def test_too_short(self):
         result = formatter.format_identifier("12345")

@@ -20,6 +20,19 @@ from . import checksum
 _SEPARATORS = re.compile(r"[\s‐‑‒–—−_/.-]")
 
 
+# Letters OCR engines routinely emit in place of digits. Applied after
+# uppercasing, so a lowercase l arrives here as L. The Cyrillic capital O is
+# included because it is visually identical to Latin O and shows up in
+# text copied out of PDFs. X is deliberately absent: it is a legal ISBN-10
+# check character.
+_OCR_FIXES = str.maketrans({
+    "O": "0",
+    "О": "0",
+    "I": "1",
+    "L": "1",
+})
+
+
 @dataclass
 class FormatResult:
     raw: str
@@ -29,6 +42,7 @@ class FormatResult:
     formatted: Optional[str]
     expected_check_digit: Optional[str]
     message: str
+    ocr_fixed: bool = False
 
 
 def clean(raw: str) -> str:
@@ -44,16 +58,25 @@ def format_identifier(raw: str) -> FormatResult:
     Length after cleanup decides what the string is being treated as:
     10 characters -> ISBN-10, 13 -> ISBN-13/EAN-13, 12 -> UPC-A. Anything
     else is reported as unknown rather than guessed at.
+
+    Look-alike letters (O, I, L) are read as digits only once the length has
+    matched a known format, so arbitrary text is never rewritten. When that
+    happens `ocr_fixed` is set and `cleaned` holds the corrected string; the
+    checksum still has to pass, which keeps a wrong guess from being
+    reported as valid.
     """
     cleaned = clean(raw)
     length = len(cleaned)
 
-    if length == 10:
-        return _format_isbn10(raw, cleaned)
-    if length == 13:
-        return _format_isbn13(raw, cleaned)
-    if length == 12:
-        return _format_upca(raw, cleaned)
+    if length in (10, 12, 13):
+        fixed = cleaned.translate(_OCR_FIXES)
+        handler = {10: _format_isbn10, 13: _format_isbn13, 12: _format_upca}[length]
+        result = handler(raw, fixed)
+        if fixed != cleaned:
+            result.ocr_fixed = True
+            if result.valid:
+                result.message = "valid after correcting look-alike letters to digits"
+        return result
 
     return FormatResult(
         raw=raw,
